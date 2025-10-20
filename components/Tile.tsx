@@ -7,7 +7,7 @@ interface TileProps {
 }
 
 const Tile: React.FC<TileProps> = ({ letter = '', status }) => {
-  const baseClasses = "w-full aspect-square inline-flex justify-center items-center text-xl sm:text-2xl font-bold uppercase text-white border-2 rounded-md transition-colors duration-300";
+  const baseClasses = "w-full aspect-square inline-flex justify-center items-center text-2xl font-bold uppercase text-white border-2 rounded-md transition-colors duration-300";
   
   const statusClasses: Record<TileStatus, string> = {
     empty: 'border-gray-600',

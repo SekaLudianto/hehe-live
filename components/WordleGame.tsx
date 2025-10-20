@@ -12,7 +12,7 @@ interface WordleGameProps {
 }
 
 const WORD_LENGTH = 5;
-const TIMER_DURATION = 300; // 5 menit dalam detik
+const TIMER_DURATION = 900; // 15 menit dalam detik
 
 const calculateStatuses = (guess: string, solution: string): TileStatus[] => {
     const guessChars = guess.split('');
@@ -41,17 +41,9 @@ const calculateStatuses = (guess: string, solution: string): TileStatus[] => {
     return statuses;
 };
 
-const calculateScore = (statuses: TileStatus[]): number => {
-    return statuses.reduce((score, status) => {
-        if (status === 'correct') return score + 2;
-        if (status === 'present') return score + 1;
-        return score;
-    }, 0);
-};
-
-
 const WordleGame: React.FC<WordleGameProps> = ({ latestChatMessage, isConnected, updateLeaderboard }) => {
     const [targetWord, setTargetWord] = useState<string>('');
+    
     const [guessHistory, setGuessHistory] = useState<GuessData[]>([]);
     const [bestGuess, setBestGuess] = useState<GuessData | null>(null);
     const [recentGuesses, setRecentGuesses] = useState<GuessData[]>([]);
@@ -68,6 +60,7 @@ const WordleGame: React.FC<WordleGameProps> = ({ latestChatMessage, isConnected,
     const processedGuesses = useRef(new Set<string>());
     const validationTimeoutRef = useRef<number | null>(null);
     const timerIntervalRef = useRef<number | null>(null);
+    const gridContainerRef = useRef<HTMLDivElement>(null);
     const lastProcessedMessageRef = useRef<ChatMessage | null>(null);
     const isEndingGame = useRef(false);
     const modalTimeoutRef = useRef<number | null>(null);
@@ -95,6 +88,7 @@ const WordleGame: React.FC<WordleGameProps> = ({ latestChatMessage, isConnected,
         setIsLoading(true);
         setGameMessage('Membuat kata baru...');
         
+        // Cleanup timeouts from previous game
         clearTimer();
         if (modalTimeoutRef.current) clearTimeout(modalTimeoutRef.current);
         if (restartTimeoutRef.current) clearTimeout(restartTimeoutRef.current);
@@ -102,8 +96,6 @@ const WordleGame: React.FC<WordleGameProps> = ({ latestChatMessage, isConnected,
         isEndingGame.current = false;
         
         setGuessHistory([]);
-        setBestGuess(null);
-        setRecentGuesses([]);
         
         setIsGameOver(false);
         setGameMessage('');
@@ -122,10 +114,47 @@ const WordleGame: React.FC<WordleGameProps> = ({ latestChatMessage, isConnected,
     useEffect(() => {
         startNewGame();
     }, []);
+
+    useEffect(() => {
+        if (guessHistory.length === 0) {
+            setBestGuess(null);
+            setRecentGuesses([]);
+            return;
+        }
+
+        const getScore = (statuses: TileStatus[]) => 
+            statuses.reduce((sum, status) => {
+                if (status === 'correct') return sum + 2;
+                if (status === 'present') return sum + 1;
+                return sum;
+            }, 0);
+
+        let topGuess: GuessData = guessHistory[0];
+        let topScore = getScore(guessHistory[0].statuses);
+
+        for (let i = 1; i < guessHistory.length; i++) {
+            const guessData = guessHistory[i];
+            const score = getScore(guessData.statuses);
+            if (score >= topScore) { // >= favors newer guesses if scores are equal
+                topScore = score;
+                topGuess = guessData;
+            }
+        }
+        
+        setBestGuess(topGuess);
+        
+        const otherGuesses = [...guessHistory]
+            .reverse()
+            .filter(g => g !== topGuess);
+
+        setRecentGuesses(otherGuesses);
+
+    }, [guessHistory]);
     
     const autoRestartGame = useCallback(() => {
         if (restartTimeoutRef.current) {
             clearTimeout(restartTimeoutRef.current);
+            restartTimeoutRef.current = null;
         }
         setIsModalOpen(false);
         setTimeout(() => {
@@ -163,19 +192,21 @@ const WordleGame: React.FC<WordleGameProps> = ({ latestChatMessage, isConnected,
     }, [timeLeft, isGameOver, targetWord, clearTimer, autoRestartGame]);
 
     const handleGuess = useCallback(async (guess: string, user: ChatMessage) => {
-        if (!isConnected) return;
+        if (!isConnected || guess.length !== WORD_LENGTH) {
+            return;
+        }
     
         const upperGuess = guess.toUpperCase();
     
-        if (isGameOver || isProcessingGuess.current || upperGuess.length !== WORD_LENGTH) {
-            return;
-        }
-
         const isValid = wordService.isValidWord(guess);
     
         if (!isValid) {
             const toastContent = `Kata <b>${upperGuess}</b> tidak valid! <br/><span class="text-xs opacity-75">Dari: ${user.nickname}</span>`;
             showValidationToast(toastContent);
+            return;
+        }
+    
+        if (isGameOver || isProcessingGuess.current) {
             return;
         }
     
@@ -188,23 +219,13 @@ const WordleGame: React.FC<WordleGameProps> = ({ latestChatMessage, isConnected,
         processedGuesses.current.add(upperGuess);
         const statuses = calculateStatuses(upperGuess, targetWord);
         const newGuessData: GuessData = { guess: upperGuess, user, statuses };
-        
         setGuessHistory(prev => [...prev, newGuessData]);
-        
-        // Update recent and best guesses
-        setRecentGuesses(prev => [newGuessData, ...prev].slice(0, 5));
-        
-        const newScore = calculateScore(statuses);
-        setBestGuess(prevBest => {
-            const prevBestScore = prevBest ? calculateScore(prevBest.statuses) : -1;
-            return newScore > prevBestScore ? newGuessData : prevBest;
-        });
 
         if (upperGuess === targetWord) {
             if (isEndingGame.current) {
                 isProcessingGuess.current = false;
                 return;
-            };
+            }
             isEndingGame.current = true;
 
             clearTimer();
@@ -242,45 +263,37 @@ const WordleGame: React.FC<WordleGameProps> = ({ latestChatMessage, isConnected,
     
     const formatTime = (seconds: number | null) => {
         if (seconds === null) return null;
-        const minutes = Math.floor(seconds / 60);
-        const secs = seconds % 60;
-        return `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        return seconds.toString();
     };
 
     return (
         <>
             <div className="bg-gray-900/50 p-4 md:p-6 rounded-lg flex flex-col h-full">
-                
                 {timeLeft !== null && (
-                    <div className="bg-gray-800/50 rounded-lg p-2 my-2">
-                        <div className={`text-center text-4xl font-bold ${timeLeft <= 30 ? 'text-red-500 animate-pulse' : 'text-white'}`}>
-                            {formatTime(timeLeft)}
-                        </div>
+                    <div className={`text-center text-2xl font-bold mb-2 ${timeLeft <= 30 ? 'text-red-500 animate-pulse' : 'text-white'}`}>
+                        {formatTime(timeLeft)}
                     </div>
                 )}
                 
-                <p className="text-center text-gray-400 mb-4 text-sm">
-                    {isConnected ? 'Kata valid pertama dari chat akan menjadi tebakan!' : 'Hubungkan ke TikTok LIVE untuk memulai!'}
+                <p className="text-center text-gray-400 mb-2 text-sm h-5">
+                    {isConnected ? '' : 'Hubungkan ke TikTok LIVE untuk memulai!'}
                 </p>
-                <div className="w-full max-w-sm mx-auto flex flex-col justify-center flex-grow">
+                <div className="w-full mx-auto flex-grow overflow-hidden">
                     {isLoading ? (
                         <div className="flex items-center justify-center h-full">
                             <SpinnerIcon className="w-10 h-10" />
                         </div>
                     ) : (
-                        <WordleGrid 
-                            bestGuess={bestGuess}
-                            recentGuesses={recentGuesses}
-                            wordLength={WORD_LENGTH} 
-                        />
+                        <div className="h-full overflow-y-auto pr-2" ref={gridContainerRef}>
+                            <WordleGrid 
+                                bestGuess={bestGuess}
+                                recentGuesses={recentGuesses}
+                                wordLength={WORD_LENGTH} 
+                            />
+                        </div>
                     )}
                 </div>
-                <div className="text-center text-lg font-medium mt-4 h-6 text-cyan-400">{gameMessage}</div>
-                <div className="mt-4 flex justify-center">
-                    <button onClick={() => startNewGame()} className="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-4 rounded-lg transition-transform transform hover:scale-105">
-                        Game Baru
-                    </button>
-                </div>
+                <div className="text-center text-lg font-medium mt-2 h-6 text-cyan-400">{gameMessage}</div>
             </div>
 
             <Modal isOpen={isModalOpen} onClose={autoRestartGame} title={modalContent.title}>

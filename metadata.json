@@ -1,5 +1,5 @@
 {
   "name": "KATLA LIVE",
-  "description": "KATLA LIVE is an interactive word guessing game that integrates with TikTok LIVE sessions. Viewers play by guessing a 5-letter Indonesian word through chat comments. The game validates words against a comprehensive dictionary and provides real-time feedback on the game board.",
+  "description": "An interactive Indonesian word guessing game that integrates with TikTok LIVE sessions. Viewers can play along by typing their guesses in the chat. The game uses a comprehensive Indonesian dictionary for word validation and selection.",
   "requestFramePermissions": []
 }

@@ -26,7 +26,7 @@ const ChatBox: React.FC<ChatBoxProps> = ({ latestMessage }) => {
     };
 
     return (
-        <div className="bg-gray-700/50 rounded-lg p-4 flex flex-col min-h-[400px] lg:min-h-0 h-full">
+        <div className="bg-gray-700/50 rounded-lg p-4 flex flex-col h-full">
             <h3 className="text-lg font-bold text-center text-white mb-3">Obrolan Langsung</h3>
             <div className="flex-grow overflow-y-auto pr-2 space-y-3" ref={containerRef}>
                 {messages.map((msg, index) => (
