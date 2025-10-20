@@ -61,6 +61,10 @@ const MusicPlayer: React.FC = () => {
   };
   
   const onPlayerStateChange = (event: any) => {
+    if (!window.YT || !window.YT.PlayerState) {
+        return; // Guard clause to prevent errors if API is not fully ready
+    }
+    
     if (event.data === window.YT.PlayerState.PLAYING) {
       setIsPlaying(true);
       const trackData = event.target.getVideoData();
@@ -96,6 +100,10 @@ const MusicPlayer: React.FC = () => {
     
     return () => {
         if(intervalRef.current) clearInterval(intervalRef.current);
+        // Destroy the player instance on component unmount to prevent memory leaks
+        if (playerRef.current) {
+            playerRef.current.destroy();
+        }
     }
 
   }, [isApiReady]);
@@ -122,18 +130,11 @@ const MusicPlayer: React.FC = () => {
   const handleLoadPlaylist = () => {
     const playlistId = extractPlaylistId(playlistUrl);
     if (playerRef.current && playlistId) {
-      playerRef.current.cuePlaylist({
+      // Use loadPlaylist which cues and plays automatically.
+      playerRef.current.loadPlaylist({
         list: playlistId,
         listType: 'playlist',
-        index: 0,
-        startSeconds: 0,
       });
-
-      // Beri sedikit jeda agar playlist sempat dimuat sebelum diputar
-      setTimeout(() => {
-        playerRef.current?.playVideo();
-      }, 500);
-      
       setShowControls(true); // Show controls when a new playlist is loaded
     }
   };
