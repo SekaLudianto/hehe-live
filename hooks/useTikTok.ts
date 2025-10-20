@@ -3,8 +3,6 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { ChatMessage, ConnectionState, GiftMessage, LikeMessage, RoomUserMessage, SocialMessage } from '../types';
 
-// FIX: Suppress TypeScript error for Vite environment variable.
-// @ts-ignore
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:8081";
 
 export const useTikTok = () => {
@@ -21,6 +19,16 @@ export const useTikTok = () => {
   const [roomUsers, setRoomUsers] = useState<RoomUserMessage | null>(null);
   const [totalDiamonds, setTotalDiamonds] = useState<number>(0);
   
+  const lastUniqueIdRef = useRef<string>('');
+  const reconnectIntervalRef = useRef<number | null>(null);
+
+  const clearReconnectInterval = useCallback(() => {
+    if (reconnectIntervalRef.current) {
+        clearInterval(reconnectIntervalRef.current);
+        reconnectIntervalRef.current = null;
+    }
+  }, []);
+
   useEffect(() => {
     socket.current = io(BACKEND_URL);
 
@@ -33,6 +41,7 @@ export const useTikTok = () => {
         setIsConnected(false);
         setConnectionState(null);
         setIsConnecting(false);
+        clearReconnectInterval();
     });
     
     socket.current.on('streamEnd', () => {
@@ -40,10 +49,12 @@ export const useTikTok = () => {
         setConnectionState(null);
         setErrorMessage('Stream ended.');
         setIsConnecting(false);
+        clearReconnectInterval();
     });
 
     socket.current.on('tiktokConnected', (state: ConnectionState) => {
       console.log('TikTok Connected:', state);
+      clearReconnectInterval();
       setConnectionState(state);
       setIsConnected(true);
       setErrorMessage(null);
@@ -55,8 +66,32 @@ export const useTikTok = () => {
       console.warn('TikTok Disconnected:', reason);
       setIsConnected(false);
       setConnectionState(null);
-      setErrorMessage(reason);
-      setIsConnecting(false);
+      
+      clearReconnectInterval();
+
+      // Do not try to reconnect if the stream has permanently ended.
+      if (reason?.toLowerCase().includes('stream ended')) {
+          setErrorMessage(reason);
+          setIsConnecting(false);
+          lastUniqueIdRef.current = ''; // Prevent retries
+          return;
+      }
+
+      if (lastUniqueIdRef.current) {
+          const retryMessage = `${reason}. Mencoba lagi...`;
+          setErrorMessage(retryMessage);
+          setIsConnecting(true); // Keep UI in connecting state
+
+          reconnectIntervalRef.current = window.setInterval(() => {
+              if (socket.current) {
+                  console.log(`Retrying connection to ${lastUniqueIdRef.current}...`);
+                  socket.current.emit('setUniqueId', lastUniqueIdRef.current, { enableExtendedGiftInfo: true });
+              }
+          }, 5000); // Retry every 5 seconds
+      } else {
+          setErrorMessage(reason);
+          setIsConnecting(false);
+      }
     });
 
     socket.current.on('chat', (msg: ChatMessage) => setLatestChatMessage(msg));
@@ -73,17 +108,20 @@ export const useTikTok = () => {
     socket.current.on('roomUser', (msg: RoomUserMessage) => setRoomUsers(msg));
 
     return () => {
+      clearReconnectInterval();
       socket.current?.disconnect();
     };
-  }, []);
+  }, [clearReconnectInterval]);
   
   const connect = useCallback((uniqueId: string) => {
     if (socket.current && uniqueId) {
+      clearReconnectInterval();
+      lastUniqueIdRef.current = uniqueId;
       setIsConnecting(true);
       setErrorMessage(null);
       socket.current.emit('setUniqueId', uniqueId, { enableExtendedGiftInfo: true });
     }
-  }, []);
+  }, [clearReconnectInterval]);
 
   return {
     isConnected,
